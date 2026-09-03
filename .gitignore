@@ -1,0 +1,16 @@
+# Python virtual environments and bytecode
+.venv/
+__pycache__/
+*.py[cod]
+
+# Local environment and editor files
+.env
+.env.*
+.DS_Store
+
+# AgentCore local build and runtime artifacts
+agentcore/cdk/node_modules/
+agentcore/cdk/cdk.out/
+agentcore/.cache/
+agentcore/.cli/logs/
+agentcore/.cli/traces/
