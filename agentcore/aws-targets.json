@@ -1,1 +1,8 @@
-[]
+[
+  {
+    "name": "default",
+    "description": "Development deployment target for the AWS Cost Assistant",
+    "account": "663877906853",
+    "region": "us-west-2"
+  }
+]
