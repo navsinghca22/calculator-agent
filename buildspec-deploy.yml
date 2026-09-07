@@ -19,6 +19,6 @@ phases:
 
   build:
     commands:
-      # CDK bootstrap creates its toolkit only on the first deployment. It is
-      # intentionally behind the CodePipeline Manual Approval stage.
+       # Bootstrap is performed out-of-band by an administrator, so this role
++      # never needs IAM-creation permissions. See iam/ for its scoped policy.
       - cd "$CODEBUILD_SRC_DIR" && agentcore deploy --target default --yes --verbose
