@@ -1,3 +1,34 @@
+# AWS Cost Assistant
+
+An AgentCore and Strands application that answers AWS cost questions using
+read-only AWS Cost Explorer data.
+
+## What problem it solves
+
+Cloud cost data is available in Cost Explorer, but answering simple questions
+often requires navigating dashboards, selecting dates, and applying filters.
+This assistant gives engineers a plain-English interface to real AWS cost data
+without changing AWS resources.
+
+## Current capabilities
+
+- Report current-month unblended cost through the last completed day.
+- Break current-month cost down by AWS service.
+- State the reporting period and whether AWS marks data as estimated.
+- Use only read-only Cost Explorer API calls.
+
+Environment-level questions are a future capability and require an activated
+`Environment` cost-allocation tag. The current GitHub → CodePipeline →
+CodeBuild workflow runs validation only; it does not deploy an AgentCore
+runtime.
+
+## Example questions
+
+- "What is my AWS month-to-date cost?"
+- "Which AWS services are driving my month-to-date cost?"
+
+---
+
 # AgentCore Project
 
 This project was created with the [AgentCore CLI](https://github.com/aws/agentcore-cli).

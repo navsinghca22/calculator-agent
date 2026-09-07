@@ -72,11 +72,82 @@ def fetch_month_to_date_cost(
     }
 
 
+def fetch_month_to_date_cost_by_service(
+    cost_explorer_client: Any,
+    *,
+    today: date,
+) -> dict[str, Any]:
+    """Fetch completed current-month cost grouped by AWS service."""
+    period = month_to_date_reported_period(today)
+    if period is None:
+        return {
+            "services": [],
+            "currency": "USD",
+            "estimated": True,
+            "period_start": today.isoformat(),
+            "period_end_exclusive": today.isoformat(),
+            "note": "No completed days are available yet for this month.",
+        }
+
+    start, end = period
+    response = cost_explorer_client.get_cost_and_usage(
+        TimePeriod={"Start": start, "End": end},
+        Granularity="DAILY",
+        Metrics=["UnblendedCost"],
+        GroupBy=[{"Type": "DIMENSION", "Key": "SERVICE"}],
+    )
+
+    amounts_by_service: dict[str, Decimal] = {}
+    currency = "USD"
+    estimated = False
+    for result in response.get("ResultsByTime", []):
+        estimated = estimated or bool(result.get("Estimated", False))
+        for group in result.get("Groups", []):
+            keys = group.get("Keys", [])
+            service = keys[0] if keys else "Uncategorized"
+            cost = group.get("Metrics", {}).get("UnblendedCost", {})
+            amounts_by_service[service] = amounts_by_service.get(service, Decimal("0")) + Decimal(
+                cost.get("Amount", "0")
+            )
+            currency = cost.get("Unit", currency)
+
+    services = [
+        {"service": service, "amount": str(amount)}
+        for service, amount in sorted(
+            amounts_by_service.items(), key=lambda item: item[1], reverse=True
+        )
+    ]
+    return {
+        "services": services,
+        "currency": currency,
+        "estimated": estimated,
+        "period_start": start,
+        "period_end_exclusive": end,
+        "note": (
+            f"Includes completed days from {start} through "
+            f"{(today - timedelta(days=1)).isoformat()}. "
+            "The current partial day is not included."
+        ),
+    }
+
+
 def get_month_to_date_cost() -> dict[str, Any]:
     """Return read-only current-month AWS cost through the last completed day."""
     try:
         client = boto3.client("ce", region_name=COST_EXPLORER_REGION)
         return fetch_month_to_date_cost(client, today=date.today())
+    except (BotoCoreError, ClientError) as error:
+        return {
+            "error": "Unable to retrieve AWS Cost Explorer data.",
+            "detail": str(error),
+        }
+
+
+def get_month_to_date_cost_by_service() -> dict[str, Any]:
+    """Return read-only current-month AWS costs by service through the last completed day."""
+    try:
+        client = boto3.client("ce", region_name=COST_EXPLORER_REGION)
+        return fetch_month_to_date_cost_by_service(client, today=date.today())
     except (BotoCoreError, ClientError) as error:
         return {
             "error": "Unable to retrieve AWS Cost Explorer data.",

@@ -1,12 +1,10 @@
 from typing import Any
 from collections import OrderedDict
 from strands import Agent, tool
-import asyncio
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from model.load import load_model
-from mcp_client.client import get_streamable_http_mcp_client
-from cost_explorer import get_month_to_date_cost
+from cost_explorer import get_month_to_date_cost, get_month_to_date_cost_by_service
 
 app = BedrockAgentCoreApp()
 log = app.logger
@@ -17,8 +15,10 @@ mcp_clients = []
 DEFAULT_SYSTEM_PROMPT = """
 You are an AWS Cost Assistant. Help users understand AWS spending using
 read-only Cost Explorer data. Use get_month_to_date_cost for questions about
-current-month cost. Clearly state its reported period and whether the result
-is estimated. Never claim that you created, changed, or deleted AWS resources.
+the current-month total, and get_month_to_date_cost_by_service when asked what
+is driving the bill or which AWS services cost the most. Clearly state the
+reported period and whether the result is estimated. Never claim that you
+created, changed, or deleted AWS resources.
 
 """
 
@@ -37,6 +37,7 @@ tools.append(add_numbers)
 
 
 tools.append(tool(get_month_to_date_cost))
+tools.append(tool(get_month_to_date_cost_by_service))
 
 
 

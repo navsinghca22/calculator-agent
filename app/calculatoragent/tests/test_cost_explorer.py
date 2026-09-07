@@ -2,7 +2,11 @@ from datetime import date
 import unittest
 from unittest.mock import Mock
 
-from cost_explorer import fetch_month_to_date_cost, month_to_date_reported_period
+from cost_explorer import (
+    fetch_month_to_date_cost,
+    fetch_month_to_date_cost_by_service,
+    month_to_date_reported_period,
+)
 
 
 class CostExplorerTests(unittest.TestCase):
@@ -41,4 +45,50 @@ class CostExplorerTests(unittest.TestCase):
             TimePeriod={"Start": "2026-09-01", "End": "2026-09-03"},
             Granularity="DAILY",
             Metrics=["UnblendedCost"],
+        )
+
+    def test_fetch_month_to_date_cost_by_service_sums_and_sorts_services(self):
+        client = Mock()
+        client.get_cost_and_usage.return_value = {
+            "ResultsByTime": [
+                {
+                    "Groups": [
+                        {
+                            "Keys": ["Amazon Bedrock"],
+                            "Metrics": {"UnblendedCost": {"Amount": "0.15", "Unit": "USD"}},
+                        },
+                        {
+                            "Keys": ["Amazon S3"],
+                            "Metrics": {"UnblendedCost": {"Amount": "0.08", "Unit": "USD"}},
+                        },
+                    ],
+                    "Estimated": False,
+                },
+                {
+                    "Groups": [
+                        {
+                            "Keys": ["Amazon Bedrock"],
+                            "Metrics": {"UnblendedCost": {"Amount": "0.20", "Unit": "USD"}},
+                        }
+                    ],
+                    "Estimated": True,
+                },
+            ]
+        }
+
+        result = fetch_month_to_date_cost_by_service(client, today=date(2026, 9, 3))
+
+        self.assertEqual(
+            result["services"],
+            [
+                {"service": "Amazon Bedrock", "amount": "0.35"},
+                {"service": "Amazon S3", "amount": "0.08"},
+            ],
+        )
+        self.assertTrue(result["estimated"])
+        client.get_cost_and_usage.assert_called_once_with(
+            TimePeriod={"Start": "2026-09-01", "End": "2026-09-03"},
+            Granularity="DAILY",
+            Metrics=["UnblendedCost"],
+            GroupBy=[{"Type": "DIMENSION", "Key": "SERVICE"}],
         )
