@@ -13,6 +13,25 @@ from botocore.exceptions import BotoCoreError, ClientError
 COST_EXPLORER_REGION = "us-east-1"
 
 
+def get_cost_and_usage_pages(cost_explorer_client: Any, request: dict[str, Any]) -> list[dict[str, Any]]:
+    """Retrieve every page returned by a Cost Explorer query."""
+    response = cost_explorer_client.get_cost_and_usage(**request)
+    pages = [response]
+    seen_tokens: set[str] = set()
+
+    while next_token := response.get("NextPageToken"):
+        if next_token in seen_tokens:
+            raise RuntimeError("Cost Explorer returned a repeated pagination token.")
+        seen_tokens.add(next_token)
+        response = cost_explorer_client.get_cost_and_usage(
+            **request,
+            NextPageToken=next_token,
+        )
+        pages.append(response)
+
+    return pages
+
+
 def month_to_date_reported_period(today: date) -> tuple[str, str] | None:
     """Return a complete-day current-month period suitable for Cost Explorer.
 
@@ -43,20 +62,21 @@ def fetch_month_to_date_cost(
         }
 
     start, end = period
-    response = cost_explorer_client.get_cost_and_usage(
-        TimePeriod={"Start": start, "End": end},
-        Granularity="DAILY",
-        Metrics=["UnblendedCost"],
-    )
+    request = {
+        "TimePeriod": {"Start": start, "End": end},
+        "Granularity": "DAILY",
+        "Metrics": ["UnblendedCost"],
+    }
 
     amount = Decimal("0")
     currency = "USD"
     estimated = False
-    for result in response.get("ResultsByTime", []):
-        cost = result.get("Total", {}).get("UnblendedCost", {})
-        amount += Decimal(cost.get("Amount", "0"))
-        currency = cost.get("Unit", currency)
-        estimated = estimated or bool(result.get("Estimated", False))
+    for response in get_cost_and_usage_pages(cost_explorer_client, request):
+        for result in response.get("ResultsByTime", []):
+            cost = result.get("Total", {}).get("UnblendedCost", {})
+            amount += Decimal(cost.get("Amount", "0"))
+            currency = cost.get("Unit", currency)
+            estimated = estimated or bool(result.get("Estimated", False))
 
     return {
         "amount": str(amount),
@@ -90,26 +110,27 @@ def fetch_month_to_date_cost_by_service(
         }
 
     start, end = period
-    response = cost_explorer_client.get_cost_and_usage(
-        TimePeriod={"Start": start, "End": end},
-        Granularity="DAILY",
-        Metrics=["UnblendedCost"],
-        GroupBy=[{"Type": "DIMENSION", "Key": "SERVICE"}],
-    )
+    request = {
+        "TimePeriod": {"Start": start, "End": end},
+        "Granularity": "DAILY",
+        "Metrics": ["UnblendedCost"],
+        "GroupBy": [{"Type": "DIMENSION", "Key": "SERVICE"}],
+    }
 
     amounts_by_service: dict[str, Decimal] = {}
     currency = "USD"
     estimated = False
-    for result in response.get("ResultsByTime", []):
-        estimated = estimated or bool(result.get("Estimated", False))
-        for group in result.get("Groups", []):
-            keys = group.get("Keys", [])
-            service = keys[0] if keys else "Uncategorized"
-            cost = group.get("Metrics", {}).get("UnblendedCost", {})
-            amounts_by_service[service] = amounts_by_service.get(service, Decimal("0")) + Decimal(
-                cost.get("Amount", "0")
-            )
-            currency = cost.get("Unit", currency)
+    for response in get_cost_and_usage_pages(cost_explorer_client, request):
+        for result in response.get("ResultsByTime", []):
+            estimated = estimated or bool(result.get("Estimated", False))
+            for group in result.get("Groups", []):
+                keys = group.get("Keys", [])
+                service = keys[0] if keys else "Uncategorized"
+                cost = group.get("Metrics", {}).get("UnblendedCost", {})
+                amounts_by_service[service] = amounts_by_service.get(service, Decimal("0")) + Decimal(
+                    cost.get("Amount", "0")
+                )
+                currency = cost.get("Unit", currency)
 
     services = [
         {"service": service, "amount": str(amount)}

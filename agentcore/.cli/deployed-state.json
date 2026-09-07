@@ -1,3 +1,16 @@
 {
-  "targets": {}
+  "targets": {
+    "default": {
+      "resources": {
+        "runtimes": {
+          "calculatoragent": {
+            "runtimeId": "calculatoragent_calculatoragent-sXkWpgHIDK",
+            "runtimeArn": "arn:aws:bedrock-agentcore:us-west-2:663877906853:runtime/calculatoragent_calculatoragent-sXkWpgHIDK",
+            "roleArn": "arn:aws:iam::663877906853:role/AgentCore-calculatoragent-ApplicationAgentCalculato-sBnN7tyijpXe"
+          }
+        },
+        "stackName": "AgentCore-calculatoragent-default"
+      }
+    }
+  }
 }

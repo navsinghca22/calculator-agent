@@ -92,3 +92,52 @@ class CostExplorerTests(unittest.TestCase):
             Metrics=["UnblendedCost"],
             GroupBy=[{"Type": "DIMENSION", "Key": "SERVICE"}],
         )
+
+    def test_fetch_month_to_date_cost_by_service_combines_all_pages(self):
+        client = Mock()
+        client.get_cost_and_usage.side_effect = [
+            {
+                "ResultsByTime": [
+                    {
+                        "Groups": [
+                            {
+                                "Keys": ["Amazon EC2"],
+                                "Metrics": {"UnblendedCost": {"Amount": "0.10", "Unit": "USD"}},
+                            }
+                        ],
+                        "Estimated": False,
+                    }
+                ],
+                "NextPageToken": "next-page",
+            },
+            {
+                "ResultsByTime": [
+                    {
+                        "Groups": [
+                            {
+                                "Keys": ["Amazon EC2"],
+                                "Metrics": {"UnblendedCost": {"Amount": "0.20", "Unit": "USD"}},
+                            },
+                            {
+                                "Keys": ["Amazon S3"],
+                                "Metrics": {"UnblendedCost": {"Amount": "0.08", "Unit": "USD"}},
+                            },
+                        ],
+                        "Estimated": True,
+                    }
+                ]
+            },
+        ]
+
+        result = fetch_month_to_date_cost_by_service(client, today=date(2026, 9, 3))
+
+        self.assertEqual(
+            result["services"],
+            [
+                {"service": "Amazon EC2", "amount": "0.30"},
+                {"service": "Amazon S3", "amount": "0.08"},
+            ],
+        )
+        self.assertTrue(result["estimated"])
+        self.assertEqual(client.get_cost_and_usage.call_count, 2)
+        self.assertEqual(client.get_cost_and_usage.call_args_list[1].kwargs["NextPageToken"], "next-page")
