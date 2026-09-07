@@ -21,5 +21,4 @@ phases:
     commands:
       # CDK bootstrap creates its toolkit only on the first deployment. It is
       # intentionally behind the CodePipeline Manual Approval stage.
-      - cd "$CODEBUILD_SRC_DIR/agentcore/cdk" && npx cdk bootstrap aws://663877906853/us-west-2
       - cd "$CODEBUILD_SRC_DIR" && agentcore deploy --target default --yes --verbose
