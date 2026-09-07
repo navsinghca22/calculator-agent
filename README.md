@@ -1,156 +1,162 @@
 # AWS Cost Assistant
 
-An AgentCore and Strands application that answers AWS cost questions using
+A secure, plain-English interface for answering AWS cost questions from live,
 read-only AWS Cost Explorer data.
 
-## What problem it solves
+Instead of asking people to navigate Cost Explorer, select dates, and interpret
+charts, this application lets an approved user ask a question such as:
 
-Cloud cost data is available in Cost Explorer, but answering simple questions
-often requires navigating dashboards, selecting dates, and applying filters.
-This assistant gives engineers a plain-English interface to real AWS cost data
-without changing AWS resources.
+> Which AWS services are driving my month-to-date cost?
 
-## Current capabilities
+The assistant responds with the reporting period, whether AWS considers the
+data estimated, and a clear cost summary. It never creates, changes, or
+deletes AWS resources.
 
-- Report current-month unblended cost through the last completed day.
-- Break current-month cost down by AWS service.
-- State the reporting period and whether AWS marks data as estimated.
-- Use only read-only Cost Explorer API calls.
+## What it does today
 
-Environment-level questions are a future capability and require an activated
-`Environment` cost-allocation tag.
+- Reports current-month unblended cost through the last completed day.
+- Identifies the AWS services driving current-month spend.
+- States the reporting period and estimated-data status.
+- Uses only read-only Cost Explorer calls.
+- Provides a normal browser experience — no CLI or JSON knowledge required.
 
-## Browser application
+Questions about a specific environment are a planned capability. They require
+an activated `Environment` cost-allocation tag first.
 
-The Cost Assistant is designed to be used as a normal browser application —
-not through the AgentCore JSON test page or a local terminal. The deployed
-architecture is:
+## High-level architecture
 
+```mermaid
+flowchart LR
+    U([User]) -->|HTTPS| W[Cost Assistant<br/>web page]
+    U -->|Sign in| C[Cognito<br/>user pool]
+    C -->|JWT| W
+    W -->|Authenticated question| A[API Gateway]
+    A --> L[Lambda<br/>secure adapter]
+    L -->|Scoped IAM permission| R[Amazon Bedrock<br/>AgentCore Runtime]
+    R --> S[Strands agent<br/>orchestration]
+    S --> N[Amazon Nova 2 Lite]
+    S --> CE[AWS Cost Explorer]
+
+    G[GitHub] --> P[CodePipeline]
+    P --> B[CodeBuild<br/>tests and validation]
+    B --> M[Manual approval]
+    M --> R
+    M --> W
+
+    classDef user fill:#E8F1FF,stroke:#2563EB,color:#102A43,stroke-width:2px;
+    classDef experience fill:#DCFCE7,stroke:#16A34A,color:#123524,stroke-width:2px;
+    classDef security fill:#FFF4CC,stroke:#D97706,color:#4A2C00,stroke-width:2px;
+    classDef agent fill:#F3E8FF,stroke:#9333EA,color:#3B0764,stroke-width:2px;
+    classDef delivery fill:#FFE4E6,stroke:#E11D48,color:#4C0519,stroke-width:2px;
+
+    class U user;
+    class W experience;
+    class C,A,L security;
+    class R,S,N,CE agent;
+    class G,P,B,M delivery;
 ```
-Browser → Cognito sign-in → API Gateway → Lambda → AgentCore Runtime → Cost Explorer
-```
 
-The browser has no AWS credentials. API Gateway verifies the signed-in user's
-Cognito token, and the Lambda role can invoke only this Cost Assistant runtime.
-The Lambda turns AgentCore's streamed response into a regular JSON answer for
-the page.
+### Why this design
 
-The GitHub → CodePipeline → CodeBuild workflow validates both the agent and
-browser application. A manually approved deployment updates the AgentCore
-runtime and the browser application together.
+- **No AWS credentials in the browser.** Cognito authenticates the user, and
+  API Gateway checks the user token before a request reaches the backend.
+- **Least privilege.** The browser-facing Lambda can invoke only this
+  assistant's `DEFAULT` AgentCore endpoint. The agent execution role has
+  read-only Cost Explorer access.
+- **A real user experience.** Users type everyday questions into a browser;
+  AgentCore is the secure runtime behind the experience, not the user
+  interface itself.
+- **Controlled releases.** Every GitHub push runs automated checks. A manual
+  approval separates validation from production deployment.
 
 ## Example questions
 
-- "What is my AWS month-to-date cost?"
-- "Which AWS services are driving my month-to-date cost?"
+- “What is my AWS month-to-date cost?”
+- “Which AWS services are driving my month-to-date cost?”
+- “List my top AWS cost drivers for this month.”
+- “Is my current AWS cost estimated, and what reporting period does it cover?”
 
----
+## Delivery pipeline
 
-# AgentCore Project
+```mermaid
+flowchart LR
+    C[Commit to GitHub] --> V[Validate<br/>Python tests, web API tests,<br/>AgentCore validation, CDK build]
+    V --> A[Manual approval]
+    A --> D[Deploy<br/>AgentCore runtime + web application]
 
-This project was created with the [AgentCore CLI](https://github.com/aws/agentcore-cli).
-
-## Project Structure
-
-```
-my-project/
-├── AGENTS.md               # AI coding assistant context
-├── agentcore/
-│   ├── agentcore.json      # Project config (agents, memories, credentials, gateways, evaluators)
-│   ├── aws-targets.json    # Deployment targets (account + region)
-│   ├── .env.local          # Secrets — API keys (gitignored)
-│   ├── .llm-context/       # TypeScript type definitions for AI assistants
-│   │   ├── agentcore.ts    # AgentCoreProjectSpec types
-│   │   └── aws-targets.ts  # Deployment target types
-│   └── cdk/                # CDK infrastructure (@aws/agentcore-cdk)
-├── app/                    # Agent application code
-└── evaluators/             # Custom evaluator code (if any)
+    classDef source fill:#E8F1FF,stroke:#2563EB,color:#102A43,stroke-width:2px;
+    classDef verify fill:#FFF4CC,stroke:#D97706,color:#4A2C00,stroke-width:2px;
+    classDef release fill:#DCFCE7,stroke:#16A34A,color:#123524,stroke-width:2px;
+    class C source;
+    class V,A verify;
+    class D release;
 ```
 
-## Getting Started
+## Technology
 
-### Prerequisites
+| Area | Services and tools |
+| --- | --- |
+| Agent | Amazon Bedrock AgentCore, Strands Agents SDK, Amazon Nova 2 Lite |
+| Cost data | AWS Cost Explorer (`GetCostAndUsage`, read-only) |
+| Web application | CloudFront, private S3 origin, API Gateway, Lambda |
+| Authentication | Amazon Cognito |
+| Infrastructure | AWS CDK and CloudFormation |
+| Delivery | GitHub, AWS CodePipeline, CodeBuild, manual approval |
+| Language | Python for the agent and API adapter; TypeScript for CDK |
 
-- **Node.js** 20.x or later
-- **Python 3.10+** and **uv** for Python agents ([install uv](https://docs.astral.sh/uv/getting-started/installation/))
-- **AWS credentials** configured (`aws configure` or environment variables)
-- **Docker** (only for Container build agents)
+## Project structure
 
-### Development
+```text
+app/calculatoragent/        Strands agent and Cost Explorer tools
+web/public/                 Browser application
+web/backend/                Authenticated Lambda API adapter
+agentcore/                  AgentCore configuration and CDK infrastructure
+iam/                        Scoped policy used by the deployment build
+buildspec.yml               Validation build commands
+buildspec-deploy.yml        Manually approved deployment commands
+```
 
-Run your agent locally:
+## Local development and validation
+
+Prerequisites: Python 3.10+, [uv](https://docs.astral.sh/uv/), Node.js 20+,
+the AgentCore CLI, and configured AWS credentials.
 
 ```bash
-agentcore dev
+# Run the agent locally
+agentcore dev --logs
+
+# Run agent tests
+cd app/calculatoragent
+uv sync
+uv run python -m unittest discover -s tests -v
+
+# Run web adapter tests
+cd ../../web/backend
+python3 -m unittest discover -s . -p "test_*.py" -v
 ```
 
-### Validate Invocation Input
+## Deployment model
 
-Validate runtime invocation payloads before forwarding them to an agent framework. Keep user prompts typed as strings
-and pass only prompt text to the agent.
+The repository is the source of truth. A GitHub push starts the validation
+pipeline; deployment occurs only after manual approval. The CDK bootstrap
+environment is required once per AWS account and Region so CodeBuild can deploy
+the CloudFormation assets safely.
 
-### Deployment
+## Learning outcomes
 
-Deploy to AWS:
+This project demonstrates how to:
 
-```bash
-agentcore deploy
-```
+- Build a tool-using Strands agent on AgentCore Runtime.
+- Apply least-privilege IAM across an agent, web API, and delivery pipeline.
+- Turn a streaming AgentCore response into a browser-friendly API response.
+- Add Cognito authentication without exposing AWS credentials to users.
+- Use CodePipeline and CodeBuild for validated, manually approved releases.
 
-## Commands
+## Notes
 
-| Command | Description |
-| --- | --- |
-| `agentcore create` | Create a new AgentCore project |
-| `agentcore add` | Add resources (agent, memory, credential, gateway, evaluator, policy) |
-| `agentcore remove` | Remove resources |
-| `agentcore dev` | Run agent locally with hot-reload |
-| `agentcore deploy` | Deploy to AWS via CDK |
-| `agentcore status` | Show deployment status |
-| `agentcore invoke` | Invoke agent (local or deployed) |
-| `agentcore logs` | View agent logs |
-| `agentcore traces` | View agent traces |
-| `agentcore eval` | Run evaluations |
-| `agentcore package` | Package agent artifacts |
-| `agentcore validate` | Validate configuration |
-| `agentcore pause` | Pause a deployed agent |
-| `agentcore resume` | Resume a paused agent |
-| `agentcore fetch` | Fetch remote resource definitions |
-| `agentcore import` | Import existing resources |
-| `agentcore update` | Check for CLI updates |
-
-## Configuration
-
-Edit the JSON files in `agentcore/` to configure your project. See `agentcore/.llm-context/` for type definitions and validation constraints.
-
-The project uses a **flat resource model** — agents, memories, credentials, gateways, evaluators, and policies are top-level arrays in `agentcore.json`. Resources are independent; agents discover memories and credentials at runtime via environment variables or SDK calls.
-
-## Resources
-
-| Resource | Purpose |
-| --- | --- |
-| Agent (runtime) | HTTP, MCP, or A2A agent deployed to AgentCore Runtime |
-| Memory | Persistent context storage with configurable strategies |
-| Credential | API key or OAuth credential providers |
-| Gateway | MCP gateway that routes tool calls to targets |
-| Gateway Target | Tool implementation (Lambda, MCP server, OpenAPI, Smithy, API Gateway) |
-| Evaluator | Custom LLM-as-a-Judge or code-based evaluation |
-| Online Eval Config | Continuous evaluation pipeline for deployed agents |
-| Policy | Cedar authorization policies for gateway tools |
-
-### Agent Types
-
-- **Template agents**: Created from framework templates (Strands, LangChain/LangGraph, GoogleADK, OpenAI Agents, Autogen)
-- **BYO agents**: Bring your own code with `agentcore add agent --type byo`
-- **Import agents**: Import existing Bedrock agents with `agentcore import`
-
-### Build Types
-
-- **CodeZip**: Python source packaged as a zip and deployed directly to AgentCore Runtime
-- **Container**: Docker image built via CodeBuild (ARM64), pushed to ECR, and deployed to AgentCore Runtime
-
-## Documentation
-
-- [AgentCore CLI](https://github.com/aws/agentcore-cli)
-- [AgentCore CDK Constructs](https://github.com/aws/agentcore-l3-cdk-constructs)
-- [Amazon Bedrock AgentCore](https://aws.amazon.com/bedrock/agentcore/)
+- Cost Explorer data can be delayed and AWS may mark recent values as estimated.
+- Cost Explorer API requests, model inference, AgentCore runtime use, and
+  pipeline executions can incur AWS charges. Use AWS Budgets and Cost Explorer
+  to monitor the account.
+- This project intentionally has no public self-registration. Create approved
+  users in the deployed Cognito user pool.
