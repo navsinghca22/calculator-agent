@@ -1,0 +1,25 @@
+version: 0.2
+
+# This buildspec is for the separate deployment CodeBuild project. It is not
+# used by the validation pipeline. CodePipeline must place a Manual Approval
+# action immediately before this build runs.
+phases:
+  install:
+    commands:
+      - python3 -m pip install --upgrade uv
+      - npm install --global @aws/agentcore@0.28.1
+
+  pre_build:
+    commands:
+      - cd "$CODEBUILD_SRC_DIR/app/calculatoragent" && uv sync --frozen
+      - cd "$CODEBUILD_SRC_DIR/app/calculatoragent" && uv run python -m unittest discover -s tests -v
+      - cd "$CODEBUILD_SRC_DIR" && agentcore validate
+      - cd "$CODEBUILD_SRC_DIR/agentcore/cdk" && npm ci
+      - cd "$CODEBUILD_SRC_DIR/agentcore/cdk" && npm run build
+
+  build:
+    commands:
+      # CDK bootstrap creates its toolkit only on the first deployment. It is
+      # intentionally behind the CodePipeline Manual Approval stage.
+      - cd "$CODEBUILD_SRC_DIR/agentcore/cdk" && npx cdk bootstrap aws://663877906853/us-west-2
+      - cd "$CODEBUILD_SRC_DIR" && agentcore deploy --target default --yes --verbose
