@@ -89,7 +89,7 @@
     status.textContent = 'Checking your AWS cost data…';
     askButton.disabled = true;
     try {
-      const result = await fetch(`${config.apiUrl}ask`, {
+      const result = await fetch(`${config.apiUrl}/ask`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${token()}` },
         body: JSON.stringify({ prompt, sessionId: sessionId() }),
