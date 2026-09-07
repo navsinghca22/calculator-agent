@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#071326" />
+    <title>AWS Cost Assistant</title>
+    <meta name="description" content="Ask plain-English questions about AWS spending." />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div class="brand"><span class="mark">$</span><span>AWS Cost Assistant</span></div>
+        <button id="sign-out" class="link-button" hidden>Sign out</button>
+      </header>
+
+      <section class="workspace" aria-labelledby="page-title">
+        <p class="eyebrow">COST VISIBILITY</p>
+        <h1 id="page-title">Ask about your AWS spend.</h1>
+        <p class="lede">Use everyday language. Answers come from read-only Cost Explorer data.</p>
+
+        <div id="sign-in-panel" class="panel sign-in-panel">
+          <h2>Sign in to continue</h2>
+          <p>Your AWS cost information is available only to approved users.</p>
+          <button id="sign-in" class="primary-button">Sign in</button>
+        </div>
+
+        <section id="assistant-panel" class="assistant" hidden aria-live="polite">
+          <div class="quick-questions" aria-label="Suggested questions">
+            <button data-question="What is my AWS month-to-date cost?">Month-to-date cost</button>
+            <button data-question="Which AWS services are driving my month-to-date cost?">Top cost drivers</button>
+          </div>
+
+          <div id="answer" class="answer empty">Ask a question to see your cost data.</div>
+
+          <form id="question-form" class="question-form">
+            <label class="sr-only" for="question">Your AWS cost question</label>
+            <textarea id="question" rows="3" maxlength="1000" placeholder="For example: What is my month-to-date AWS cost?"></textarea>
+            <div class="form-footer">
+              <span id="status" class="status"></span>
+              <button id="ask" class="primary-button" type="submit">Ask</button>
+            </div>
+          </form>
+        </section>
+      </section>
+    </main>
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

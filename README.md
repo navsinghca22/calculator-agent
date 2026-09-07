@@ -18,9 +18,26 @@ without changing AWS resources.
 - Use only read-only Cost Explorer API calls.
 
 Environment-level questions are a future capability and require an activated
-`Environment` cost-allocation tag. The current GitHub → CodePipeline →
-CodeBuild workflow runs validation only; it does not deploy an AgentCore
-runtime.
+`Environment` cost-allocation tag.
+
+## Browser application
+
+The Cost Assistant is designed to be used as a normal browser application —
+not through the AgentCore JSON test page or a local terminal. The deployed
+architecture is:
+
+```
+Browser → Cognito sign-in → API Gateway → Lambda → AgentCore Runtime → Cost Explorer
+```
+
+The browser has no AWS credentials. API Gateway verifies the signed-in user's
+Cognito token, and the Lambda role can invoke only this Cost Assistant runtime.
+The Lambda turns AgentCore's streamed response into a regular JSON answer for
+the page.
+
+The GitHub → CodePipeline → CodeBuild workflow validates both the agent and
+browser application. A manually approved deployment updates the AgentCore
+runtime and the browser application together.
 
 ## Example questions
 

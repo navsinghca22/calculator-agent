@@ -8,9 +8,19 @@ import {
   type CustomJWTAuthorizerConfig,
   type HarnessDeploymentConfig,
 } from '@aws/agentcore-cdk';
-import { CfnOutput, Stack, type StackProps } from 'aws-cdk-lib';
+import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
+import * as apigatewayv2 from 'aws-cdk-lib/aws-apigatewayv2';
+import * as apigatewayv2Authorizers from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
+import * as apigatewayv2Integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
+import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
+import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import { Construct } from 'constructs';
+import * as path from 'path';
 
 /**
  * Harness deployment config: role-scoped fields (for IAM role + container build)
@@ -165,6 +175,8 @@ export class AgentCoreStack extends Stack {
         description: 'Execution role created and managed by this stack for the Cost Assistant runtime',
         value: costAssistantEnvironment.runtime.role.roleArn,
       });
+
+      this.addCostAssistantWebExperience(costAssistantEnvironment.runtime.runtimeArn);
     }
 
     // Create AgentCoreMcp if there are gateways configured
@@ -328,6 +340,132 @@ export class AgentCoreStack extends Stack {
     new CfnOutput(this, 'StackNameOutput', {
       description: 'Name of the CloudFormation Stack',
       value: this.stackName,
+    });
+  }
+
+  /**
+   * Create the browser experience for the Cost Assistant.
+   *
+   * The browser never receives AWS credentials and does not invoke AgentCore
+   * directly. Cognito authenticates the user, API Gateway validates the JWT,
+   * and a narrowly scoped Lambda role invokes only this runtime.
+   */
+  private addCostAssistantWebExperience(runtimeArn: string) {
+    const projectRoot = path.resolve(process.cwd(), '..', '..');
+    const webRoot = path.join(projectRoot, 'web');
+
+    const websiteBucket = new s3.Bucket(this, 'CostAssistantWebsiteBucket', {
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+
+    const distribution = new cloudfront.Distribution(this, 'CostAssistantWebsiteDistribution', {
+      defaultRootObject: 'index.html',
+      defaultBehavior: {
+        origin: origins.S3BucketOrigin.withOriginAccessControl(websiteBucket),
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+      },
+    });
+
+    const userPool = new cognito.UserPool(this, 'CostAssistantUserPool', {
+      selfSignUpEnabled: false,
+      signInAliases: { email: true },
+      standardAttributes: { email: { required: true, mutable: false } },
+      passwordPolicy: {
+        minLength: 12,
+        requireDigits: true,
+        requireLowercase: true,
+        requireUppercase: true,
+        requireSymbols: true,
+      },
+      accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+
+    const userPoolDomain = userPool.addDomain('CostAssistantUserPoolDomain', {
+      cognitoDomain: {
+        domainPrefix: `cost-assistant-${this.account}-${this.region}`,
+      },
+    });
+
+    const userPoolClient = userPool.addClient('CostAssistantWebClient', {
+      authFlows: { userSrp: true },
+      generateSecret: false,
+      oAuth: {
+        flows: { authorizationCodeGrant: true },
+        scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL],
+        callbackUrls: [`https://${distribution.distributionDomainName}/`],
+        logoutUrls: [`https://${distribution.distributionDomainName}/`],
+      },
+      preventUserExistenceErrors: true,
+    });
+
+    const invokeHandler = new lambda.Function(this, 'CostAssistantInvokeHandler', {
+      runtime: lambda.Runtime.PYTHON_3_14,
+      handler: 'handler.handler',
+      code: lambda.Code.fromAsset(path.join(webRoot, 'backend')),
+      timeout: Duration.seconds(30),
+      memorySize: 256,
+      environment: {
+        AGENT_RUNTIME_ARN: runtimeArn,
+        AGENTCORE_REGION: this.region,
+      },
+    });
+    // The web API does not delegate a runtime user ID, so grant only ordinary
+    // invocation. `grantInvoke()` also includes InvokeAgentRuntimeForUser,
+    // which would be unnecessary privilege for this application.
+    invokeHandler.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['bedrock-agentcore:InvokeAgentRuntime'],
+        resources: [runtimeArn],
+      })
+    );
+
+    const api = new apigatewayv2.HttpApi(this, 'CostAssistantApi', {
+      corsPreflight: {
+        allowHeaders: ['authorization', 'content-type'],
+        allowMethods: [apigatewayv2.CorsHttpMethod.POST],
+        allowOrigins: [`https://${distribution.distributionDomainName}`],
+        maxAge: Duration.hours(1),
+      },
+    });
+    const authorizer = new apigatewayv2Authorizers.HttpJwtAuthorizer('CostAssistantJwtAuthorizer', userPool.userPoolProviderUrl, {
+      jwtAudience: [userPoolClient.userPoolClientId],
+    });
+    api.addRoutes({
+      path: '/ask',
+      methods: [apigatewayv2.HttpMethod.POST],
+      integration: new apigatewayv2Integrations.HttpLambdaIntegration('CostAssistantInvokeIntegration', invokeHandler),
+      authorizer,
+    });
+
+    new s3deploy.BucketDeployment(this, 'CostAssistantWebsiteDeployment', {
+      destinationBucket: websiteBucket,
+      distribution,
+      distributionPaths: ['/*'],
+      sources: [
+        s3deploy.Source.asset(path.join(webRoot, 'public')),
+        s3deploy.Source.data(
+          'config.js',
+          `window.COST_ASSISTANT_CONFIG = ${JSON.stringify({
+            apiUrl: api.apiEndpoint,
+            cognitoDomain: userPoolDomain.baseUrl(),
+            clientId: userPoolClient.userPoolClientId,
+            redirectUri: `https://${distribution.distributionDomainName}/`,
+          })};\n`
+        ),
+      ],
+    });
+
+    new CfnOutput(this, 'CostAssistantWebsiteUrl', {
+      description: 'Sign-in protected web application for the AWS Cost Assistant',
+      value: `https://${distribution.distributionDomainName}`,
+    });
+    new CfnOutput(this, 'CostAssistantUserPoolId', {
+      description: 'Cognito user pool for the Cost Assistant web application',
+      value: userPool.userPoolId,
     });
   }
 }

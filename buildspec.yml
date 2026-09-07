@@ -13,6 +13,8 @@ phases:
       - cd "$CODEBUILD_SRC_DIR/app/calculatoragent" && uv sync --frozen
       - cd "$CODEBUILD_SRC_DIR/app/calculatoragent" && uv run python -m unittest discover -s tests -v
       - cd "$CODEBUILD_SRC_DIR/app/calculatoragent" && uv run python -m compileall -q .
+      - python3 -m compileall -q "$CODEBUILD_SRC_DIR/web/backend"
+      - cd "$CODEBUILD_SRC_DIR/web/backend" && python3 -m unittest discover -s . -p "test_*.py" -v
       - cd "$CODEBUILD_SRC_DIR" && agentcore validate
 
   build:
