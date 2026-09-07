@@ -1,0 +1,22 @@
+version: 0.2
+
+# Validation-only build for AWS CodeBuild. Deployment is intentionally kept in
+# a separate, manually approved stage that we will add later.
+phases:
+  install:
+    commands:
+      - python3 -m pip install --upgrade uv
+      - npm install --global @aws/agentcore@0.28.1
+
+  pre_build:
+    commands:
+      - cd "$CODEBUILD_SRC_DIR/app/calculatoragent" && uv sync --frozen
+      - cd "$CODEBUILD_SRC_DIR/app/calculatoragent" && uv run python -m unittest discover -s tests -v
+      - cd "$CODEBUILD_SRC_DIR/app/calculatoragent" && uv run python -m compileall -q .
+      - cd "$CODEBUILD_SRC_DIR" && agentcore validate
+
+  build:
+    commands:
+      - cd "$CODEBUILD_SRC_DIR/agentcore/cdk" && npm ci
+      - cd "$CODEBUILD_SRC_DIR/agentcore/cdk" && npm test -- --runInBand
+      - cd "$CODEBUILD_SRC_DIR/agentcore/cdk" && npm run build
