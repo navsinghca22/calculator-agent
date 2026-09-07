@@ -125,6 +125,48 @@ export class AgentCoreStack extends Stack {
     }
     this.application = new AgentCoreApplication(this, 'Application', appProps as any);
 
+    // The Cost Assistant runtime is deployed by this stack. Grant its generated
+    // execution role only the permissions its source code needs: read-only Cost
+    // Explorer access and inference against the configured Nova 2 Lite model.
+    // Keeping this in CDK makes the permission set reviewable and ensures the
+    // deployment pipeline, rather than a manual console change, owns the role.
+    const costAssistantEnvironment = this.application.environments.get('calculatoragent');
+    if (costAssistantEnvironment) {
+      costAssistantEnvironment.runtime.role.addToPrincipalPolicy(
+        new iam.PolicyStatement({
+          sid: 'ReadCostExplorerData',
+          actions: ['ce:GetCostAndUsage'],
+          resources: ['*'],
+        })
+      );
+
+      costAssistantEnvironment.runtime.role.addToPrincipalPolicy(
+        new iam.PolicyStatement({
+          sid: 'InvokeConfiguredNovaModel',
+          actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
+          resources: [
+            'arn:aws:bedrock:*::foundation-model/amazon.nova-2-lite-v1:0',
+            `arn:${this.partition}:bedrock:${this.region}:${this.account}:inference-profile/us.amazon.nova-2-lite-v1:0`,
+          ],
+        })
+      );
+
+      costAssistantEnvironment.runtime.role.addToPrincipalPolicy(
+        new iam.PolicyStatement({
+          sid: 'ReadConfiguredInferenceProfile',
+          actions: ['bedrock:GetInferenceProfile'],
+          resources: [
+            `arn:${this.partition}:bedrock:${this.region}:${this.account}:inference-profile/us.amazon.nova-2-lite-v1:0`,
+          ],
+        })
+      );
+
+      new CfnOutput(this, 'CostAssistantExecutionRoleArn', {
+        description: 'Execution role created and managed by this stack for the Cost Assistant runtime',
+        value: costAssistantEnvironment.runtime.role.roleArn,
+      });
+    }
+
     // Create AgentCoreMcp if there are gateways configured
     if (mcpSpec?.agentCoreGateways && mcpSpec.agentCoreGateways.length > 0) {
       new AgentCoreMcp(this, 'Mcp', {
