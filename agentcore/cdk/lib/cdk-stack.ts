@@ -419,7 +419,7 @@ export class AgentCoreStack extends Stack {
     invokeHandler.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ['bedrock-agentcore:InvokeAgentRuntime'],
-        resources: [runtimeArn],
+        resources: [runtimeArn, `${runtimeArn}/runtime-endpoint/DEFAULT`],
       })
     );
 
