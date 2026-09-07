@@ -1,0 +1,84 @@
+"""Read-only helpers for retrieving AWS Cost Explorer data."""
+
+from __future__ import annotations
+
+from datetime import date, timedelta
+from decimal import Decimal
+from typing import Any
+
+import boto3
+from botocore.exceptions import BotoCoreError, ClientError
+
+
+COST_EXPLORER_REGION = "us-east-1"
+
+
+def month_to_date_reported_period(today: date) -> tuple[str, str] | None:
+    """Return a complete-day current-month period suitable for Cost Explorer.
+
+    Cost Explorer's end date is exclusive.  Excluding the current partial day
+    prevents the agent from presenting an incomplete daily number as final.
+    """
+    start = today.replace(day=1)
+    if today <= start:
+        return None
+    return start.isoformat(), today.isoformat()
+
+
+def fetch_month_to_date_cost(
+    cost_explorer_client: Any,
+    *,
+    today: date,
+) -> dict[str, Any]:
+    """Fetch unblended cost for the completed days of the current month."""
+    period = month_to_date_reported_period(today)
+    if period is None:
+        return {
+            "amount": "0",
+            "currency": "USD",
+            "estimated": True,
+            "period_start": today.isoformat(),
+            "period_end_exclusive": today.isoformat(),
+            "note": "No completed days are available yet for this month.",
+        }
+
+    start, end = period
+    response = cost_explorer_client.get_cost_and_usage(
+        TimePeriod={"Start": start, "End": end},
+        Granularity="DAILY",
+        Metrics=["UnblendedCost"],
+    )
+
+    amount = Decimal("0")
+    currency = "USD"
+    estimated = False
+    for result in response.get("ResultsByTime", []):
+        cost = result.get("Total", {}).get("UnblendedCost", {})
+        amount += Decimal(cost.get("Amount", "0"))
+        currency = cost.get("Unit", currency)
+        estimated = estimated or bool(result.get("Estimated", False))
+
+    return {
+        "amount": str(amount),
+        "currency": currency,
+        "estimated": estimated,
+        "period_start": start,
+        "period_end_exclusive": end,
+        "note": (
+            f"Includes completed days from {start} through "
+            f"{(today - timedelta(days=1)).isoformat()}. "
+            "The current partial day is not included."
+        ),
+    }
+
+
+def get_month_to_date_cost() -> dict[str, Any]:
+    """Return read-only current-month AWS cost through the last completed day."""
+    try:
+        client = boto3.client("ce", region_name=COST_EXPLORER_REGION)
+        return fetch_month_to_date_cost(client, today=date.today())
+    except (BotoCoreError, ClientError) as error:
+        return {
+            "error": "Unable to retrieve AWS Cost Explorer data.",
+            "detail": str(error),
+        }

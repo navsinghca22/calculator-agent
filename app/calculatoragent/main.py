@@ -6,6 +6,7 @@ from strands.agent.conversation_manager.null_conversation_manager import NullCon
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from model.load import load_model
 from mcp_client.client import get_streamable_http_mcp_client
+from cost_explorer import get_month_to_date_cost
 
 app = BedrockAgentCoreApp()
 log = app.logger
@@ -14,7 +15,10 @@ log = app.logger
 mcp_clients = []
 
 DEFAULT_SYSTEM_PROMPT = """
-You are a helpful assistant. Use tools when appropriate.
+You are an AWS Cost Assistant. Help users understand AWS spending using
+read-only Cost Explorer data. Use get_month_to_date_cost for questions about
+current-month cost. Clearly state its reported period and whether the result
+is estimated. Never claim that you created, changed, or deleted AWS resources.
 
 """
 
@@ -30,6 +34,9 @@ def add_numbers(a: int, b: int) -> int:
     """Return the sum of two numbers"""
     return a+b
 tools.append(add_numbers)
+
+
+tools.append(tool(get_month_to_date_cost))
 
 
 
