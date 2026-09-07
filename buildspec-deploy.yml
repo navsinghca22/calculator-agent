@@ -17,7 +17,7 @@ phases:
       - cd "$CODEBUILD_SRC_DIR/agentcore/cdk" && npm ci
       - cd "$CODEBUILD_SRC_DIR/agentcore/cdk" && npm run build
 
-    build:
+  build:
     commands:
       # Bootstrap is performed out-of-band by an administrator, so this role
       # never needs IAM-creation permissions. See iam/ for its scoped policy.
