@@ -17,6 +17,12 @@
             "Effect": "Allow",
             "Action": "ssm:GetParameter",
             "Resource": "arn:aws:ssm:us-west-2:663877906853:parameter/cdk-bootstrap/hnb659fds/version"
+        },
+        {
+            "Sid": "ReadCostAssistantStackStatus",
+            "Effect": "Allow",
+            "Action": "cloudformation:DescribeStacks",
+            "Resource": "arn:aws:cloudformation:us-west-2:663877906853:stack/AgentCore-calculatoragent-default/*"
         }
     ]
 }
